@@ -1,3 +1,4 @@
+"use client"
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -7,7 +8,14 @@ import { GptSearchIcon } from "@/components/icons/GptSearchIcon"
 import { GptStudyIcon } from "@/components/icons/GptStudyIcon"
 import { GptVoiceIcon } from "@/components/icons/GptVoiceIcon"
 
-export function Hero() {
+type Props = { onSubmit?: (q: string) => void }
+
+export function Hero({ onSubmit }: Props) {
+  const [text, setText] = React.useState("")
+  const submit = () => {
+    if (!text.trim()) return
+    onSubmit?.(text.trim())
+  }
   return (
     <section className="w-full flex flex-col items-center justify-center py-[120px] px-[16px] md:px-[24px] lg:px-[32px]">
       <h1 className="text-[40px] leading-[44px] font-semibold tracking-[-0.02em] text-foreground mb-[28px]">
@@ -23,6 +31,14 @@ export function Hero() {
               placeholder="Ask anything"
               className="flex-1 bg-transparent dark:bg-transparent shadow-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-0 placeholder:text-foreground/50 text-[16px] leading-[24px] resize-none p-0 min-h-[56px] h-[56px]"
               rows={1}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  submit()
+                }
+              }}
             />
           </div>
 
@@ -40,7 +56,7 @@ export function Hero() {
                 <GptStudyIcon className="size-4 mr-1" /> Study
               </Button>
               <div className="ms-auto flex items-center gap-1.5">
-                <Button aria-label="Start voice mode" variant="ghost" className="relative flex h-9 items-center justify-center rounded-full min-w-8 p-2 text-[var(--text-secondary)] hover:opacity-80">
+                <Button type="button" aria-label="Start voice mode" variant="ghost" className="relative flex h-9 items-center justify-center rounded-full min-w-8 p-2 text-[var(--text-secondary)] hover:opacity-80">
                   <div className="flex items-center justify-center">
                     <GptVoiceIcon className="size-5" />
                   </div>
