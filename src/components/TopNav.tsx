@@ -3,6 +3,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs"
 import { ChatGPTLogo } from "@/components/icons/ChatGPTLogo"
 import { GptNewChatIcon } from "@/components/icons/GptNewChatIcon"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -49,18 +50,29 @@ export function TopNav() {
                 <div className="text-lg font-semibold mb-2">Try advanced features for free</div>
                 <p className="text-sm text-foreground/80 mb-4">Get smarter responses, upload files, create images, and more by logging in.</p>
                 <div className="flex items-center gap-3">
-                  <button className="h-9 px-4 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90">Log in</button>
-                  <button className="h-9 px-4 rounded-full border border-border text-sm font-medium hover:bg-[var(--interactive-bg-secondary-hover)]">Sign up for free</button>
+                  <SignInButton mode="modal">
+                    <button className="h-9 px-4 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90">Log in</button>
+                  </SignInButton>
+                  <SignUpButton mode="modal">
+                    <button className="h-9 px-4 rounded-full border border-border text-sm font-medium hover:bg-[var(--interactive-bg-secondary-hover)]">Sign up for free</button>
+                  </SignUpButton>
                 </div>
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
         <div className="flex items-center gap-[12px]">
-          <Button className="h-9 px-[16px] rounded-full text-sm">
-            Log in
-          </Button>
-          <Button variant="outline" className="h-9 px-[16px] rounded-full text-sm">Sign up for free</Button>
+          <SignedOut>
+            <SignInButton mode="redirect">
+              <Button className="h-9 px-[16px] rounded-full text-sm">Log in</Button>
+            </SignInButton>
+            <SignUpButton mode="redirect">
+              <Button variant="outline" className="h-9 px-[16px] rounded-full text-sm">Sign up for free</Button>
+            </SignUpButton>
+          </SignedOut>
+          <SignedIn>
+            <UserButton afterSignOutUrl="/?model=auto" />
+          </SignedIn>
           <Button aria-label="Help" variant="ghost" className="h-9 px-[14px] rounded-full text-sm">
             <HelpCircle className="size-5" />
           </Button>

@@ -1,6 +1,8 @@
 "use client"
 import * as React from "react"
 import { Hero } from "@/components/Hero"
+import { SignedInHero } from "@/components/SignedInHero"
+import { SignedIn, SignedOut } from "@clerk/nextjs"
 import { Conversation } from "@/components/Conversation"
 import { useSearchParams } from "next/navigation"
 
@@ -24,7 +26,16 @@ export function Landing() {
   }, [searchParams])
 
   if (!started) {
-    return <Hero onSubmit={handleSubmit} />
+    return (
+      <>
+        <SignedOut>
+          <Hero onSubmit={handleSubmit} />
+        </SignedOut>
+        <SignedIn>
+          <SignedInHero onSubmit={handleSubmit} />
+        </SignedIn>
+      </>
+    )
   }
 
   return <Conversation initialQuery={initialQuery ?? ""} />
