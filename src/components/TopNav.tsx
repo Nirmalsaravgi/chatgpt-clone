@@ -55,9 +55,9 @@ export function TopNav() {
           {chatStarted && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 text-sm px-2 py-1 rounded-full hover:bg-[var(--interactive-bg-secondary-hover)]">
+                <button className="flex items-center gap-1 text-lg px-2 py-1 rounded-full hover:bg-[var(--interactive-bg-secondary-hover)]">
                   <span>ChatGPT</span>
-                  <ChevronDown className="size-4" />
+                  <ChevronDown className="size-4 text-foreground/60" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" sideOffset={8} className="p-0 w-[360px] rounded-[16px] overflow-hidden border border-border bg-[var(--bg-primary)]">
@@ -91,7 +91,7 @@ export function TopNav() {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1 text-sm px-2 py-1 rounded-full hover:bg-[var(--interactive-bg-secondary-hover)]">
                 <span>ChatGPT</span>
-                <ChevronDown className="size-4" />
+                <ChevronDown className="size-4 text-foreground/60" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" sideOffset={8} className="p-0 w-[300px] rounded-[16px] overflow-hidden border border-border bg-[var(--bg-primary)]">
@@ -111,7 +111,7 @@ export function TopNav() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="flex items-center gap-[12px]">
+        <div className="flex items-center gap-[12px] ms-auto md:ms-0">
           <SignedOut>
             <SignInButton mode="redirect">
               <Button className="h-9 px-[16px] rounded-full text-sm bg-white text-black hover:bg-white/90">Log in</Button>

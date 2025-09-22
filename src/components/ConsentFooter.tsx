@@ -12,11 +12,18 @@ export function ConsentFooter() {
   const [paddingBottomPx, setPaddingBottomPx] = React.useState<number>(16)
   const [bannerHeight, setBannerHeight] = React.useState<number>(0)
   const [bannerVisible, setBannerVisible] = React.useState<boolean>(false)
+  const [chatStarted, setChatStarted] = React.useState<boolean>(false)
 
   React.useEffect(() => {
     let ro: ResizeObserver | null = null
 
     const measureAndSet = () => {
+      // Hide this footer while a conversation view is active
+      let started = false
+      try { started = !!localStorage.getItem("ls_chat_started") } catch {}
+      setChatStarted(started)
+      if (started) return
+
       const accepted = getCookie("cookie_consent")
       let welcomeDismissed = true
       try {
@@ -46,8 +53,12 @@ export function ConsentFooter() {
 
     const onWelcomeDismiss = () => measureAndSet()
     const onCookieChange = () => measureAndSet()
+    const onChatFlagChange = () => measureAndSet()
     window.addEventListener("dismiss_auth_prompt", onWelcomeDismiss)
     window.addEventListener("cookie_consent_change", onCookieChange)
+    window.addEventListener("ls_chat_started_change", onChatFlagChange)
+    window.addEventListener("chat_started", onChatFlagChange)
+    window.addEventListener("chat_reset", onChatFlagChange)
     window.addEventListener("resize", measureAndSet)
 
     const attachObserver = () => {
@@ -66,6 +77,9 @@ export function ConsentFooter() {
       window.removeEventListener("dismiss_auth_prompt", onWelcomeDismiss)
       window.removeEventListener("cookie_consent_change", onCookieChange)
       window.removeEventListener("resize", measureAndSet)
+      window.removeEventListener("ls_chat_started_change", onChatFlagChange)
+      window.removeEventListener("chat_started", onChatFlagChange)
+      window.removeEventListener("chat_reset", onChatFlagChange)
       if (ro) ro.disconnect()
       window.clearTimeout(t)
     }
@@ -75,6 +89,8 @@ export function ConsentFooter() {
   const fixedProps = bannerVisible
     ? { className: "fixed inset-x-0 z-40 text-center px-4 py-2", style: { bottom: bannerHeight || 90 } as React.CSSProperties }
     : { className: "w-full text-center px-4", style: { paddingBottom: paddingBottomPx } as React.CSSProperties }
+
+  if (chatStarted) return null
 
   return (
     <div {...fixedProps}>
