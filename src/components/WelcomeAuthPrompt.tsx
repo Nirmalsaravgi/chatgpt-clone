@@ -21,27 +21,37 @@ export default function WelcomeAuthPrompt() {
       localStorage.setItem("dismiss_auth_prompt", "1")
     } catch (_) {}
     setOpen(false)
+    try {
+      window.dispatchEvent(new CustomEvent("dismiss_auth_prompt"))
+    } catch {}
   }
 
   return (
     <SignedOut>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-[var(--bg-elevated-primary,rgba(0,0,0,0.85))] border border-border p-6 sm:p-8 rounded-[16px] max-w-[560px] text-center">
-          <DialogTitle className="text-[28px] sm:text-[30px] leading-8 font-semibold mb-2">Welcome back</DialogTitle>
-          <DialogDescription className="text-foreground/80 text-sm sm:text-base mb-6">
-            Log in or sign up to get smarter responses, upload files and images, and more.
-          </DialogDescription>
-          <div className="space-y-3">
-            <SignInButton mode="redirect">
-              <Button className="w-full h-10 rounded-full bg-white text-black hover:bg-white/90">Log in</Button>
-            </SignInButton>
-            <SignUpButton mode="redirect">
-              <Button variant="outline" className="w-full h-10 rounded-full">Sign up for free</Button>
-            </SignUpButton>
+      <Dialog open={open} onOpenChange={(v) => setOpen(v)}>
+        <DialogContent
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          showCloseButton={false}
+          className="bg-[var(--bg-elevated-primary,rgba(0,0,0,0.85))] border-0 rounded-2xl max-w-[400px] sm:max-w-[400px] text-center shadow-[0_8px_16px_rgba(0,0,0,0.35),0_0_1px_rgba(255,255,255,0.06)_inset,0_0_1px_rgba(255,255,255,0.06)] p-0 top-auto bottom-[4px] left-1/2 -translate-x-1/2 translate-y-0 w-[calc(100%-16px)] sm:w-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:translate-y-[-50%]"
+        >
+          <div className="flex flex-col items-center justify-center px-6 py-8 sm:p-10">
+            <DialogTitle className="text-2xl font-semibold mb-1">Welcome back</DialogTitle>
+            <DialogDescription className="text-foreground/80 text-lg mb-6">
+              Log in or sign up to get smarter responses, upload files and images, and more.
+            </DialogDescription>
+            <div className="w-full">
+              <SignInButton mode="redirect">
+                <Button className="w-full h-10 rounded-full bg-white text-black hover:bg-white/90 mb-2 sm:mb-3">Log in</Button>
+              </SignInButton>
+              <SignUpButton mode="redirect">
+                <Button variant="outline" className="w-full h-10 rounded-full mb-5">Sign up for free</Button>
+              </SignUpButton>
+            </div>
+            <button onClick={stayLoggedOut} className="text-foreground/80 font-semibold underline sm:text-sm">
+              Stay logged out
+            </button>
           </div>
-          <button onClick={stayLoggedOut} className="mt-4 text-sm text-foreground/80 hover:underline">
-            Stay logged out
-          </button>
         </DialogContent>
       </Dialog>
     </SignedOut>

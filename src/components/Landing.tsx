@@ -14,6 +14,10 @@ export function Landing() {
   const handleSubmit = (q: string) => {
     setInitialQuery(q)
     setStarted(true)
+    try {
+      localStorage.setItem("ls_chat_started", "1")
+      window.dispatchEvent(new Event("ls_chat_started_change"))
+    } catch {}
   }
 
   React.useEffect(() => {
@@ -22,6 +26,10 @@ export function Landing() {
     if (model === "auto") {
       setStarted(false)
       setInitialQuery(null)
+      try {
+        localStorage.removeItem("ls_chat_started")
+        window.dispatchEvent(new Event("ls_chat_started_change"))
+      } catch {}
     }
   }, [searchParams])
 
