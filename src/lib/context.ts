@@ -1,8 +1,14 @@
 export type CoreMessage = { role: "system" | "user" | "assistant"; content: string };
 
-// Heuristic token estimator (chars/4). Replace with tokenizer later.
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+import { encode } from "gpt-tokenizer";
+
+function countTokens(text: string): number {
+  try {
+    return encode(text).length;
+  } catch {
+    // Fallback: rough heuristic
+    return Math.ceil(text.length / 4);
+  }
 }
 
 export function trimToBudget(
@@ -16,12 +22,12 @@ export function trimToBudget(
 
   const budget = Math.max(0, maxInputTokens - reserveForResponse);
 
-  // keep newest-first; drop oldest until within budget
+  // keep newest-first; drop oldest until within budget using token counts
   const reversed = [...base].reverse();
   const kept: CoreMessage[] = [];
   let total = 0;
   for (const msg of reversed) {
-    const cost = estimateTokens(msg.content) + 8; // small overhead per message
+    const cost = countTokens(msg.content) + 8; // small overhead per message
     if (total + cost > budget) break;
     kept.push(msg);
     total += cost;

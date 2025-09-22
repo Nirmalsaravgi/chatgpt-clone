@@ -15,6 +15,7 @@ import { Check, ArrowUp } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
+import { UploadedFile } from "@/types/uploads"
 
 type Props = { initialQuery: string }
 
@@ -24,17 +25,18 @@ export function Conversation({ initialQuery }: Props) {
 
   const { messages, sendMessage, stop, status } = useChat({
     transport: new TextStreamChatTransport({ api: "/api/chat" }),
-    body: { model },
   })
 
   const formRef = React.useRef<HTMLFormElement>(null)
   const [text, setText] = React.useState("")
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [pendingFiles, setPendingFiles] = React.useState<Array<{ file: File; preview: string }>>([])
 
   const didSubmitInitialRef = React.useRef(false)
   React.useEffect(() => {
     if (initialQuery && !didSubmitInitialRef.current) {
       didSubmitInitialRef.current = true
-      sendMessage({ text: initialQuery })
+      sendMessage({ text: initialQuery }, { body: { model } })
       setText("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -52,8 +54,28 @@ export function Conversation({ initialQuery }: Props) {
 
   const submit = () => {
     if (!text.trim()) return
-    sendMessage({ text })
-    setText("")
+    const doSend = async () => {
+      let uploaded: UploadedFile[] = []
+      if (pendingFiles.length) {
+        const fd = new FormData()
+        pendingFiles.forEach(({ file }) => fd.append("files", file))
+        const resp = await fetch("/api/uploads", { method: "POST", body: fd })
+        if (!resp.ok) throw new Error(await resp.text())
+        const json = await resp.json() as { files: UploadedFile[] }
+        uploaded = json.files || []
+      }
+
+      const attachmentLines = uploaded.length
+        ? "\n\nAttachments:\n" + uploaded.map(f => `- [${f.name}](${f.url})`).join("\n")
+        : ""
+      const finalText = text + attachmentLines
+      await sendMessage({ text: finalText }, { body: { attachments: uploaded } })
+      setText("")
+      // revoke previews and clear staged files
+      pendingFiles.forEach(p => URL.revokeObjectURL(p.preview))
+      setPendingFiles([])
+    }
+    doSend().catch(() => {})
   }
 
   return (
@@ -67,7 +89,15 @@ export function Conversation({ initialQuery }: Props) {
                 {m.role === "user" ? (
                   <div className="flex w-full items-end justify-end">
                     <div className="user-message-bubble-color relative rounded-[18px] px-4 py-1.5 data-[multiline]:py-3 max-w-[min(70%,680px)] bg-[var(--bg-elevated-primary)] text-foreground">
-                      <div className="whitespace-pre-wrap">{getMessageText(m)}</div>
+                      <div className="markdown w-full break-words">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={{ a: (props) => (<a {...props} target="_blank" rel="noreferrer" />) }}
+                        >
+                          {getMessageText(m)}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -123,7 +153,17 @@ export function Conversation({ initialQuery }: Props) {
       <div className="sticky bottom-0 inset-x-0 z-20 pb-2 pt-2 bg-[var(--bg-primary,transparent)]/60 backdrop-blur-[2px]">
         <div className="my-auto mx-auto [--thread-content-margin:--spacing(4)] md:[--thread-content-margin:--spacing(6)] lg:[--thread-content-margin:--spacing(16)] px-[var(--thread-content-margin)] [--thread-content-max-width:40rem] lg:[--thread-content-max-width:48rem] max-w-[var(--thread-content-max-width)]">
           <div className="group/composer bg-[var(--bg-secondary)] text-secondary-foreground p-2.5 grid grid-cols-[auto_1fr_auto] [grid-template-areas:'header_header_header'_'leading_primary_trailing'_'._footer_.'] rounded-[28px] shadow-sm border border-border overflow-clip bg-clip-padding">
-            <div className="-my-2.5 flex min-h-14 items-center overflow-x-hidden px-1.5 [grid-area:primary] relative">
+            <div
+              className="-my-2.5 flex min-h-14 items-center overflow-x-hidden px-1.5 [grid-area:primary] relative"
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy" }}
+              onDrop={(e) => {
+                e.preventDefault()
+                const files = Array.from(e.dataTransfer.files || [])
+                if (!files.length) return
+                const staged = files.map(file => ({ file, preview: URL.createObjectURL(file) }))
+                setPendingFiles(prev => [...prev, ...staged])
+              }}
+            >
               <form
                 ref={formRef}
                 onSubmit={(e) => {
@@ -132,6 +172,21 @@ export function Conversation({ initialQuery }: Props) {
                 }}
                 className="flex-1"
               >
+              {pendingFiles.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {pendingFiles.map((p, idx) => (
+                    <div key={idx} className="group relative rounded-md border border-border bg-[var(--bg-tertiary)] px-2 py-1 flex items-center gap-2">
+                      {p.file.type.startsWith("image/") ? (
+                        <img src={p.preview} alt={p.file.name} className="h-8 w-8 object-cover rounded" />
+                      ) : (
+                        <div className="h-8 w-8 rounded bg-[var(--bg-secondary)] inline-flex items-center justify-center text-xs">FILE</div>
+                      )}
+                      <span className="max-w-[180px] truncate text-xs">{p.file.name}</span>
+                      <button type="button" className="text-xs text-foreground/60 hover:text-foreground" onClick={() => setPendingFiles(prev => prev.filter((_, i) => i !== idx))}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <Textarea
                 placeholder="Ask anything"
                 className="flex-1 bg-transparent dark:bg-transparent shadow-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-0 placeholder:text-foreground/50 text-[16px] leading-[24px] resize-none p-0 min-h-[56px] h-[56px]"
@@ -139,6 +194,17 @@ export function Conversation({ initialQuery }: Props) {
                 name="input"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
+                onPaste={(e) => {
+                  const items = Array.from(e.clipboardData?.items || [])
+                  const files = items
+                    .filter(i => i.kind === "file")
+                    .map(i => i.getAsFile())
+                    .filter((f): f is File => !!f)
+                  if (files.length) {
+                    const staged = files.map(file => ({ file, preview: URL.createObjectURL(file) }))
+                    setPendingFiles(prev => [...prev, ...staged])
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault()
@@ -154,12 +220,25 @@ export function Conversation({ initialQuery }: Props) {
               >
                 <ArrowUp className="size-4" />
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  const staged = files.map(file => ({ file, preview: URL.createObjectURL(file) }))
+                  setPendingFiles(prev => [...prev, ...staged])
+                  e.currentTarget.value = ""
+                }}
+              />
               </form>
             </div>
 
             <div className="-m-1 max-w-full overflow-x-auto p-1 [grid-area:footer] [scrollbar-width:none]">
               <div className="flex min-w-fit items-center gap-1.5 ps-0 pe-1.5 w-full">
-                <Button variant="outline" className="h-9 rounded-full px-3 text-[13px] font-semibold">
+                <Button variant="outline" className="h-9 rounded-full px-3 text-[13px] font-semibold" onClick={() => fileInputRef.current?.click()}>
                   <GptAttachIcon className="size-4 mr-1" /> Attach
                 </Button>
                 <Button variant="outline" className="h-9 rounded-full px-3 text-[13px] font-medium">
