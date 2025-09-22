@@ -8,32 +8,51 @@ import { GptStudyIcon } from "@/components/icons/GptStudyIcon"
 import { GptVoiceIcon } from "@/components/icons/GptVoiceIcon"
 import { GptCopyIcon } from "@/components/icons/GptCopyIcon"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Check } from "lucide-react"
-
-type Message = { id: string; role: "user" | "assistant"; content: string }
+import { useChat } from "@ai-sdk/react"
+import { TextStreamChatTransport } from "ai"
+import { useSearchParams } from "next/navigation"
+import { Check, ArrowUp } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import rehypeHighlight from "rehype-highlight"
 
 type Props = { initialQuery: string }
 
 export function Conversation({ initialQuery }: Props) {
-  const [messages, setMessages] = React.useState<Message[]>(() =>
-    initialQuery
-      ? [
-          { id: crypto.randomUUID(), role: "user", content: initialQuery },
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "Hey! 😊\nHow can I help you today?",
-          },
-        ]
-      : []
-  )
+  const searchParams = useSearchParams()
+  const model = searchParams.get("model")
+
+  const { messages, sendMessage, stop, status } = useChat({
+    transport: new TextStreamChatTransport({ api: "/api/chat" }),
+    body: { model },
+  })
+
+  const formRef = React.useRef<HTMLFormElement>(null)
   const [text, setText] = React.useState("")
+
+  const didSubmitInitialRef = React.useRef(false)
+  React.useEffect(() => {
+    if (initialQuery && !didSubmitInitialRef.current) {
+      didSubmitInitialRef.current = true
+      sendMessage({ text: initialQuery })
+      setText("")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery])
+
   const [copiedId, setCopiedId] = React.useState<string | null>(null)
 
+  const getMessageText = (m: any): string => {
+    if (typeof m?.content === "string") return m.content
+    const parts = Array.isArray(m?.parts) ? m.parts : []
+    return parts
+      .map((p: any) => (typeof p === "string" ? p : p?.text ?? ""))
+      .join("")
+  }
+
   const submit = () => {
-    const q = text.trim()
-    if (!q) return
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", content: q }])
+    if (!text.trim()) return
+    sendMessage({ text })
     setText("")
   }
 
@@ -48,14 +67,24 @@ export function Conversation({ initialQuery }: Props) {
                 {m.role === "user" ? (
                   <div className="flex w-full items-end justify-end">
                     <div className="user-message-bubble-color relative rounded-[18px] px-4 py-1.5 data-[multiline]:py-3 max-w-[min(70%,680px)] bg-[var(--bg-elevated-primary)] text-foreground">
-                      <div className="whitespace-pre-wrap">{m.content}</div>
+                      <div className="whitespace-pre-wrap">{getMessageText(m)}</div>
                     </div>
                   </div>
                 ) : (
                   <div className="flex w-full items-start justify-start">
                     <div className="w-full">
-                      <div className="markdown prose dark:prose-invert w-full break-words">
-                        <p className="whitespace-pre-wrap">{m.content}</p>
+                      <div className="markdown w-full break-words">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={{
+                            a: (props) => (
+                              <a {...props} target="_blank" rel="noreferrer" />
+                            ),
+                          }}
+                        >
+                          {getMessageText(m)}
+                        </ReactMarkdown>
                       </div>
                       <div className="flex min-h-[46px] justify-start">
                         <TooltipProvider>
@@ -65,7 +94,7 @@ export function Conversation({ initialQuery }: Props) {
                                 className="text-foreground/60 hover:bg-[var(--bg-secondary)] rounded-lg"
                                 aria-label="Copy"
                                 onClick={() => {
-                                  navigator.clipboard.writeText(m.content)
+                                  navigator.clipboard.writeText(getMessageText(m))
                                   setCopiedId(m.id)
                                   window.setTimeout(() => setCopiedId((prev) => (prev === m.id ? null : prev)), 1500)
                                 }}
@@ -94,11 +123,20 @@ export function Conversation({ initialQuery }: Props) {
       <div className="sticky bottom-0 inset-x-0 z-20 pb-2 pt-2 bg-[var(--bg-primary,transparent)]/60 backdrop-blur-[2px]">
         <div className="my-auto mx-auto [--thread-content-margin:--spacing(4)] md:[--thread-content-margin:--spacing(6)] lg:[--thread-content-margin:--spacing(16)] px-[var(--thread-content-margin)] [--thread-content-max-width:40rem] lg:[--thread-content-max-width:48rem] max-w-[var(--thread-content-max-width)]">
           <div className="group/composer bg-[var(--bg-secondary)] text-secondary-foreground p-2.5 grid grid-cols-[auto_1fr_auto] [grid-template-areas:'header_header_header'_'leading_primary_trailing'_'._footer_.'] rounded-[28px] shadow-sm border border-border overflow-clip bg-clip-padding">
-            <div className="-my-2.5 flex min-h-14 items-center overflow-x-hidden px-1.5 [grid-area:primary]">
+            <div className="-my-2.5 flex min-h-14 items-center overflow-x-hidden px-1.5 [grid-area:primary] relative">
+              <form
+                ref={formRef}
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  submit()
+                }}
+                className="flex-1"
+              >
               <Textarea
                 placeholder="Ask anything"
                 className="flex-1 bg-transparent dark:bg-transparent shadow-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-0 placeholder:text-foreground/50 text-[16px] leading-[24px] resize-none p-0 min-h-[56px] h-[56px]"
                 rows={1}
+                name="input"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
@@ -108,6 +146,15 @@ export function Conversation({ initialQuery }: Props) {
                   }
                 }}
               />
+              <button
+                type="submit"
+                aria-label="Send"
+                disabled={!text.trim() || status === "streaming"}
+                className="absolute right-1.5 bottom-1.5 inline-flex items-center justify-center size-8 rounded-full bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+              </form>
             </div>
 
             <div className="-m-1 max-w-full overflow-x-auto p-1 [grid-area:footer] [scrollbar-width:none]">
