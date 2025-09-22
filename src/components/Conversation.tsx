@@ -11,21 +11,30 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useChat } from "@ai-sdk/react"
 import { TextStreamChatTransport } from "ai"
 import { useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { Check, ArrowUp } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
 import { UploadedFile } from "@/types/uploads"
 
-type Props = { initialQuery: string }
+type PreloadedMessage = { id: string; role: 'user' | 'assistant' | 'system'; parts?: Array<{ type: string; text?: string }>; content?: string }
+type Props = { initialQuery: string; threadId?: string; initialMessages?: PreloadedMessage[] }
 
-export function Conversation({ initialQuery }: Props) {
+export function Conversation({ initialQuery, threadId, initialMessages = [] }: Props) {
   const searchParams = useSearchParams()
   const model = searchParams.get("model")
-
+  const router = useRouter()
+  const temporaryChat = searchParams.get("tc") === "1"
   const { messages, sendMessage, stop, status } = useChat({
     transport: new TextStreamChatTransport({ api: "/api/chat" }),
-  })
+    onResponse: (response: Response) => {
+      const newThreadId = response.headers.get("x-thread-id")
+      if (newThreadId && !threadId) {
+        router.replace(`/chat/${newThreadId}`)
+      }
+    },
+  } as unknown as any)
 
   const formRef = React.useRef<HTMLFormElement>(null)
   const [text, setText] = React.useState("")
@@ -36,13 +45,40 @@ export function Conversation({ initialQuery }: Props) {
   React.useEffect(() => {
     if (initialQuery && !didSubmitInitialRef.current) {
       didSubmitInitialRef.current = true
-      sendMessage({ text: initialQuery }, { body: { model } })
-      setText("")
+      // If there's no active thread, create it first and navigate so the chat happens on /chat/[threadId]
+      const run = async () => {
+        if (!threadId) {
+          const res = await fetch('/api/threads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: initialQuery.slice(0, 60) })
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const newId = (data.threadId || data._id || '').toString()
+            router.push(`/chat/${newId}?q=${encodeURIComponent(initialQuery)}`)
+            return
+          }
+        }
+        const body: any = { model, temporaryChat }
+        if (threadId) body.threadId = threadId
+        await sendMessage({ text: initialQuery }, { body })
+        setText("")
+      }
+      run().catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQuery])
+  }, [initialQuery, threadId])
 
   const [copiedId, setCopiedId] = React.useState<string | null>(null)
+
+  const preloaded = React.useMemo(() => {
+    return (initialMessages || []).map((m) => ({
+      id: m.id,
+      role: m.role,
+      parts: Array.isArray(m.parts) && m.parts.length ? m.parts : (m.content ? [{ type: 'text', text: m.content }] : []),
+    }))
+  }, [initialMessages])
 
   const getMessageText = (m: any): string => {
     if (typeof m?.content === "string") return m.content
@@ -69,7 +105,28 @@ export function Conversation({ initialQuery }: Props) {
         ? "\n\nAttachments:\n" + uploaded.map(f => `- [${f.name}](${f.url})`).join("\n")
         : ""
       const finalText = text + attachmentLines
-      await sendMessage({ text: finalText }, { body: { attachments: uploaded } })
+
+      // If not in a thread yet, create a thread first and navigate, carrying the query
+      if (!threadId) {
+        const res = await fetch('/api/threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: finalText.slice(0, 60) })
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const newId = (data.threadId || data._id || '').toString()
+          setText("")
+          pendingFiles.forEach(p => URL.revokeObjectURL(p.preview))
+          setPendingFiles([])
+          router.push(`/chat/${newId}?q=${encodeURIComponent(finalText)}`)
+          return
+        }
+      }
+
+      const body: any = { attachments: uploaded, model, temporaryChat }
+      if (threadId) body.threadId = threadId
+      await sendMessage({ text: finalText }, { body })
       setText("")
       // revoke previews and clear staged files
       pendingFiles.forEach(p => URL.revokeObjectURL(p.preview))
@@ -84,7 +141,7 @@ export function Conversation({ initialQuery }: Props) {
         <div className="text-base my-auto mx-auto pb-10 [--thread-content-margin:--spacing(4)] md:[--thread-content-margin:--spacing(6)] lg:[--thread-content-margin:--spacing(16)] px-[var(--thread-content-margin)]">
           <div className="[--thread-content-max-width:40rem] lg:[--thread-content-max-width:48rem] mx-auto max-w-[var(--thread-content-max-width)] flex-1 relative flex w-full min-w-0 flex-col">
           <div className="flex flex-col text-sm">
-            {messages.map((m) => (
+            {[...preloaded, ...messages].map((m: any) => (
               <div key={m.id} className="w-full">
                 {m.role === "user" ? (
                   <div className="flex w-full items-end justify-end">

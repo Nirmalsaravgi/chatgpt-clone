@@ -2,6 +2,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import useSWR from "swr"
 import { ChatGPTLogo } from "@/components/icons/ChatGPTLogo"
 import { GptCloseSidebarIcon } from "@/components/icons/GptCloseSidebarIcon"
 import { GptSearchChatsIcon } from "@/components/icons/GptSearchChatsIcon"
@@ -18,6 +19,9 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = React.useState(false)
   const [showUpgrade, setShowUpgrade] = React.useState(true)
   const { user } = useUser()
+  const fetcher = (url: string) => fetch(url).then(r => r.json())
+  const { data } = useSWR('/api/threads', fetcher)
+  const items: any[] = Array.isArray(data?.items) ? data.items : []
 
   const fullName = user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress?.split("@")[0] || "Guest"
   const initials = fullName
@@ -28,7 +32,9 @@ export function Sidebar() {
 
   const widthClass = collapsed ? "w-[72px]" : "w-[280px]"
 
-  const goNewChat = () => router.push("/?model=auto")
+  const goNewChat = async () => {
+    router.push('/?model=auto')
+  }
 
   return (
     <aside className={`hidden md:flex ${widthClass} shrink-0 bg-[var(--bg-elevated-secondary)] text-foreground/90`}> 
@@ -122,10 +128,11 @@ export function Sidebar() {
             <div className="pt-2">
               <div className="px-2 pb-1 text-xs uppercase tracking-wide text-foreground/50">Chats</div>
               <div className="space-y-1">
-                <ChatListItem title="Export decline and GST 2.0" />
-                <ChatListItem title="Both me and I usage" />
-                <ChatListItem title="Npm install log summary" />
-                <ChatListItem title="Copy all text in nano" />
+                {items.map((t) => (
+                  <Link key={t._id} href={`/chat/${t._id}`} className="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-[var(--interactive-bg-secondary-hover)]">
+                    <span className="truncate text-left">{t.title || 'New chat'}</span>
+                  </Link>
+                ))}
               </div>
             </div>
           )}
