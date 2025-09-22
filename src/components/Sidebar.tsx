@@ -1,6 +1,6 @@
 "use client"
 import * as React from "react"
-import Link from "next/link"
+// import Link from "next/link"
 import { useRouter } from "next/navigation"
 import useSWR from "swr"
 import { ChatGPTLogo } from "@/components/icons/ChatGPTLogo"
@@ -9,8 +9,9 @@ import { GptSearchChatsIcon } from "@/components/icons/GptSearchChatsIcon"
 import { GptLibraryIcon } from "@/components/icons/GptLibraryIcon"
 import { GptSoraIcon } from "@/components/icons/GptSoraIcon"
 import { GptGPTsIcon } from "@/components/icons/GptGPTsIcon"
-import { Button } from "@/components/ui/button"
-import { Plus, Search, BookOpen, PanelsTopLeft, Bot, FolderClosed, X } from "lucide-react"
+// import { Button } from "@/components/ui/button"
+import { Plus, FolderClosed, X, MoreVertical, Trash2 } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUser } from "@clerk/nextjs"
 
@@ -20,7 +21,7 @@ export function Sidebar() {
   const [showUpgrade, setShowUpgrade] = React.useState(true)
   const { user } = useUser()
   const fetcher = (url: string) => fetch(url).then(r => r.json())
-  const { data } = useSWR('/api/threads', fetcher)
+  const { data, mutate } = useSWR('/api/threads', fetcher)
   const items: any[] = Array.isArray(data?.items) ? data.items : []
 
   const fullName = user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress?.split("@")[0] || "Guest"
@@ -129,9 +130,12 @@ export function Sidebar() {
               <div className="px-2 pb-1 text-xs uppercase tracking-wide text-foreground/50">Chats</div>
               <div className="space-y-1">
                 {items.map((t) => (
-                  <Link key={t._id} href={`/chat/${t._id}`} className="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-[var(--interactive-bg-secondary-hover)]">
-                    <span className="truncate text-left">{t.title || 'New chat'}</span>
-                  </Link>
+                  <ChatListItem key={t._id} threadId={t._id} title={t.title || 'New chat'} onDeleted={async () => {
+                    await mutate()
+                    // If we're on the deleted thread, route to root
+                    // Best-effort: rely on sidebar state
+                    router.push('/?model=auto')
+                  }} />
                 ))}
               </div>
             </div>
@@ -187,11 +191,48 @@ function SidebarItem({ icon, label, collapsed, onClick, endAdornment }: { icon: 
   )
 }
 
-function ChatListItem({ title }: { title: string }) {
+function ChatListItem({ title, threadId, onDeleted }: { title: string; threadId: string; onDeleted?: () => void }) {
+  const router = useRouter()
+  const [open, setOpen] = React.useState(false)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const deleteThread = async () => {
+    const res = await fetch(`/api/threads/${threadId}`, { method: 'DELETE' })
+    if (res.ok) {
+      setConfirmOpen(false)
+      onDeleted?.()
+    }
+  }
   return (
-    <button className="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-[var(--interactive-bg-secondary-hover)]">
-      <span className="truncate text-left">{title}</span>
-    </button>
+    <div className="group relative">
+      <button onClick={() => router.push(`/chat/${threadId}`)} className="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-[var(--interactive-bg-secondary-hover)]">
+        <span className="truncate text-left">{title}</span>
+        <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+          <button aria-label="More" onClick={(e) => { e.stopPropagation(); setOpen(v => !v) }} className="p-1 rounded hover:bg-[var(--interactive-bg-secondary-hover)]">
+            <MoreVertical className="size-4" />
+          </button>
+        </span>
+      </button>
+      {open && (
+        <div className="absolute right-2 top-full mt-1 z-20 w-56 rounded-lg border border-border bg-[var(--bg-primary)] shadow-lg p-1">
+          <button onClick={() => setConfirmOpen(true)} className="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-red-500 hover:bg-[var(--interactive-bg-secondary-hover)]">
+            <Trash2 className="size-4" />
+            <span>Delete</span>
+          </button>
+        </div>
+      )}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="w-[320px] p-0 rounded-[12px] overflow-hidden bg-[var(--bg-primary)] border border-border">
+          <div className="p-4">
+            <DialogTitle className="text-base mb-2">Delete chat?</DialogTitle>
+            <p className="text-sm text-foreground/70">This will permanently delete the chat and its messages.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="h-8 px-3 rounded-md text-sm hover:bg-[var(--interactive-bg-secondary-hover)]" onClick={() => setConfirmOpen(false)}>Cancel</button>
+              <button className="h-8 px-3 rounded-md text-sm bg-red-600 text-white hover:bg-red-600/90" onClick={deleteThread}>Delete</button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 

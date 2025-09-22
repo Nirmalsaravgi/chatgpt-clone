@@ -2,7 +2,7 @@
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Mic } from "lucide-react"
+// import { Mic } from "lucide-react"
 import { GptAttachIcon } from "@/components/icons/GptAttachIcon"
 import { GptSearchIcon } from "@/components/icons/GptSearchIcon"
 import { GptStudyIcon } from "@/components/icons/GptStudyIcon"

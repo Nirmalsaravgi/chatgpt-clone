@@ -18,7 +18,8 @@ import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
 import { UploadedFile } from "@/types/uploads"
 
-type PreloadedMessage = { id: string; role: 'user' | 'assistant' | 'system'; parts?: Array<{ type: string; text?: string }>; content?: string }
+type Part = { type: 'text'; text?: string } | { type: 'image'; image?: { url: string } } | { type: string; [k: string]: unknown }
+type PreloadedMessage = { id: string; role: 'user' | 'assistant' | 'system'; parts?: Part[]; content?: string }
 type Props = { initialQuery: string; threadId?: string; initialMessages?: PreloadedMessage[] }
 
 export function Conversation({ initialQuery, threadId, initialMessages = [] }: Props) {
@@ -34,7 +35,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
         router.replace(`/chat/${newThreadId}`)
       }
     },
-  } as unknown as any)
+  } as unknown as Parameters<typeof useChat>[0])
 
   const formRef = React.useRef<HTMLFormElement>(null)
   const [text, setText] = React.useState("")
@@ -80,11 +81,11 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
     }))
   }, [initialMessages])
 
-  const getMessageText = (m: any): string => {
+  const getMessageText = (m: { content?: string; parts?: Part[] }): string => {
     if (typeof m?.content === "string") return m.content
     const parts = Array.isArray(m?.parts) ? m.parts : []
     return parts
-      .map((p: any) => (typeof p === "string" ? p : p?.text ?? ""))
+      .map((p) => (typeof (p as any) === "string" ? (p as unknown as string) : (p as any)?.text ?? ""))
       .join("")
   }
 

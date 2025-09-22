@@ -1,5 +1,7 @@
+import type { ObjectId } from "mongodb"
+
 export type ThreadDoc = {
-  _id?: any
+  _id?: ObjectId
   userId: string
   title: string
   createdAt: Date
@@ -13,8 +15,8 @@ export type MessagePart = { type: 'text'; text: string } | { type: 'image'; imag
 export type Attachment = { name: string; url: string; mimeType: string; size: number }
 
 export type MessageDoc = {
-  _id?: any
-  threadId: any
+  _id?: ObjectId
+  threadId: ObjectId
   userId: string
   role: 'user' | 'assistant' | 'system'
   parts: MessagePart[]
