@@ -85,7 +85,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
       .map((p) => (typeof (p as any) === "string" ? (p as unknown as string) : (p as any)?.text ?? ""))
       .join("")
   }
-  
+
 
   const extractAttachmentImages = (text: string): { images: Array<{ name: string; url: string }>; cleanText: string } => {
     try {
@@ -491,7 +491,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
       <div className="sticky bottom-0 inset-x-0 z-20 pb-2 pt-0 bg-[var(--bg-primary)]">
         <div className="text-base mx-auto [--thread-content-margin:--spacing(4)] md:[--thread-content-margin:--spacing(6)] lg:[--thread-content-margin:--spacing(16)] px-[var(--thread-content-margin)] w-full">
           <div className="[--thread-content-max-width:40rem] lg:[--thread-content-max-width:48rem] mx-auto max-w-[var(--thread-content-max-width)] flex-1">
-            {editingOrdinal !== null && (
+            {/* {editingOrdinal !== null && (
               <div className="mb-2 rounded-md border border-border bg-[var(--bg-tertiary)] p-2">
                 <div className="text-xs mb-1">Editing message</div>
                 <textarea
@@ -541,7 +541,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
                   </button>
                 </div>
               </div>
-            )}
+            )} */}
             {pendingFiles.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {pendingFiles.map((p, idx) => (
