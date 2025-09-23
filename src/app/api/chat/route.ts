@@ -10,6 +10,8 @@ import { ObjectId } from "mongodb"
 
 export const runtime = "nodejs"
 
+let hasLoggedPromptPreview = false
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, model, attachments, temporaryChat, threadId: inputThreadId } = await req.json()
@@ -17,8 +19,23 @@ export async function POST(req: NextRequest) {
     const modelId = resolveModel(model)
     const { reserveForResponse } = getBudgets(modelId)
 
-    // Trim to context window using accurate token counts on UI messages
+    // Build source messages: optionally augment with prior DB context for the thread
     const uiMessages: any[] = Array.isArray(messages) ? messages : []
+    let uiSource: any[] = uiMessages
+    try {
+      if (userId && typeof inputThreadId === 'string' && inputThreadId && uiMessages.length <= 1) {
+        const { messages: messagesCol } = await getCollections()
+        const prior = await messagesCol
+          .find({ threadId: new ObjectId(inputThreadId) })
+          .sort({ createdAt: 1 })
+          .toArray()
+        const mapped = prior.map((doc: any) => ({
+          role: doc?.role,
+          parts: Array.isArray(doc?.parts) && doc.parts.length ? doc.parts : (typeof doc?.content === 'string' && doc.content ? [{ type: 'text', text: String(doc.content) }] : []),
+        }))
+        uiSource = [...mapped, ...uiMessages]
+      }
+    } catch {}
     const getText = (m: any): string => {
       if (typeof m?.content === "string") return m.content as string
       const parts = Array.isArray(m?.parts) ? m.parts : []
@@ -30,8 +47,8 @@ export async function POST(req: NextRequest) {
     const budget = Math.max(0, (getBudgets(modelId).maxInputTokens ?? 128000) - reserveForResponse)
     const kept: any[] = []
     let total = 0
-    for (let i = uiMessages.length - 1; i >= 0; i--) {
-      const m = uiMessages[i]
+    for (let i = uiSource.length - 1; i >= 0; i--) {
+      const m = uiSource[i]
       const cost = countTokens(getText(m)) + 8
       if (total + cost > budget) break
       kept.unshift(m)
@@ -61,6 +78,7 @@ export async function POST(req: NextRequest) {
 
     // Retrieve relevant memories and prepend as system message
     let uiMessagesForConversion: any[] = []
+    let systemInstruction: string = ""
     try {
       if (!temporaryChat && userId) {
         // extract last user text from kept
@@ -88,7 +106,31 @@ export async function POST(req: NextRequest) {
           })
           const systemMemory = formatMemoriesForSystemPrompt(unique)
           if (systemMemory) {
-            uiMessagesForConversion.push({ role: "system", content: systemMemory })
+            // Strong directive to ensure the model applies the memories when relevant
+            systemInstruction = `Use the following user-specific facts if relevant to answer. If asked about the user's preferences or profile, answer using these facts instead of saying you don't know.\n${systemMemory}`
+
+            // 2) Additionally prepend the memory context into the last user message text
+            //    to ensure providers that de-emphasize 'system' still see the context.
+            try {
+              for (let i = uiMessagesCore.length - 1; i >= 0; i--) {
+                const msg: any = uiMessagesCore[i]
+                if (msg?.role === 'user' && Array.isArray(msg.parts)) {
+                  // Find first text part if any
+                  let textPartIdx = -1
+                  for (let pIdx = 0; pIdx < msg.parts.length; pIdx++) {
+                    const p = msg.parts[pIdx]
+                    if (p && typeof p === 'object' && p.type === 'text') { textPartIdx = pIdx; break }
+                  }
+                  if (textPartIdx >= 0) {
+                    const current = (msg.parts[textPartIdx]?.text || '') as string
+                    msg.parts[textPartIdx] = { type: 'text', text: `${systemMemory}\n\n${current}` }
+                  } else {
+                    msg.parts.unshift({ type: 'text', text: systemMemory })
+                  }
+                  break
+                }
+              }
+            } catch {}
           }
           // fire-and-forget upsert of user text
           // write to both thread and global (preference-style persistence across chats)
@@ -110,8 +152,8 @@ export async function POST(req: NextRequest) {
         const now = new Date()
         // derive a tentative title from first user message content
         let firstUserText = ''
-        for (let i = 0; i < uiMessages.length; i++) {
-          const m = uiMessages[i]
+        for (let i = 0; i < uiSource.length; i++) {
+          const m = uiSource[i]
           if (m?.role === 'user') { firstUserText = getText(m); break }
         }
         const title = (firstUserText || 'New chat').slice(0, 60)
@@ -157,8 +199,29 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
+    if (!hasLoggedPromptPreview && process.env.MEM0_DEBUG === '1') {
+      try {
+        const preview = (uiMessagesForConversion as any[]).map((m: any) => {
+          if (typeof m?.content === 'string') {
+            return { role: m.role, content: [{ type: 'text', text: String(m.content).slice(0, 1000) }] }
+          }
+          const parts = Array.isArray(m?.parts) ? m.parts : []
+          const content = parts.map((p: any) => p?.type === 'text'
+            ? { type: 'text', text: String(p?.text ?? '').slice(0, 1000) }
+            : p)
+          return { role: m.role, content }
+        })
+        console.info('[debug] modelMessages preview', {
+          systemInstruction: String(systemInstruction || '').slice(0, 2000),
+          messages: preview,
+        })
+      } catch {}
+      hasLoggedPromptPreview = true
+    }
+
     const result = await streamText({
       model: google(modelId),
+      system: systemInstruction || undefined,
       messages: convertToModelMessages(uiMessagesForConversion as any),
       maxOutputTokens: reserveForResponse,
     })
