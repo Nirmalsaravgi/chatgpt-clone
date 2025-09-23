@@ -158,9 +158,9 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
   }
 
   return (
-    <div className="w-full min-h-dvh flex flex-col">
+    <div className="w-full h-full flex flex-col overflow-hidden">
       {!isSignedIn && <div className="h-[64px] shrink-0" />}
-      <div className="flex-1 w-full">
+      <div className="flex-1 w-full min-h-0 overflow-y-auto">
         <div className="text-base mx-auto pt-3 pb-10 [--thread-content-margin:--spacing(4)] md:[--thread-content-margin:--spacing(6)] lg:[--thread-content-margin:--spacing(16)] px-[var(--thread-content-margin)]">
           <div className="[--thread-content-max-width:40rem] lg:[--thread-content-max-width:48rem] mx-auto max-w-[var(--thread-content-max-width)] flex-1 relative flex w-full min-w-0 flex-col">
           <div className="flex flex-col text-sm">

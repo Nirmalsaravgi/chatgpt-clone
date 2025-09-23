@@ -22,15 +22,15 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const query = (sp && (await sp))?.q || ""
 
   return (
-    <div className="min-h-dvh flex flex-col">
-      <main className="flex-1 flex items-stretch justify-stretch">
+    <div className="h-dvh flex flex-col overflow-hidden">
+      <main className="flex-1 flex items-stretch justify-stretch overflow-hidden">
         <Sidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <div className="sticky top-0 z-10 h-14 flex items-center justify-between px-2 bg-[var(--bg-primary)]">
             <ModelSwitcher />
             <TemporaryChatToggle />
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-h-0">
             <ConversationClient threadId={threadId} initialMessages={initialMessages} initialQuery={query} />
           </div>
         </div>
