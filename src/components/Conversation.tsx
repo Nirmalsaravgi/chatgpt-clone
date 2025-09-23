@@ -86,6 +86,33 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
       .join("")
   }
 
+  const extractAttachmentImages = (text: string): { images: Array<{ name: string; url: string }>; cleanText: string } => {
+    try {
+      const lines = (text || "").split(/\r?\n/)
+      const images: Array<{ name: string; url: string }> = []
+      let inAtt = false
+      const kept: string[] = []
+      for (const line of lines) {
+        if (!inAtt && /^\s*Attachments:\s*$/i.test(line)) { inAtt = true; continue }
+        if (inAtt) {
+            const m = line.match(/^-\s*\[([^\]]+)\]\(([^\)]+)\)\s*$/)
+          if (m) {
+            const name = m[1]
+              const url = m[2]
+            images.push({ name, url })
+            continue
+          }
+          if (!/^\s*-\s/.test(line)) { inAtt = false; kept.push(line) }
+          continue
+        }
+        kept.push(line)
+      }
+      return { images, cleanText: kept.join("\n").trim() }
+    } catch {
+      return { images: [], cleanText: text }
+    }
+  }
+
   const timeline = React.useMemo(() => [...preloaded, ...messages], [preloaded, messages])
 
   const { awaitingAssistant, lastUserId } = React.useMemo(() => {
@@ -118,9 +145,26 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
     if (!input.trim()) return
     const doSend = async () => {
       let uploaded: UploadedFile[] = []
+      let dataUrls: Array<string | null> = []
       if (pendingFiles.length) {
+        // Prepare client-side base64 for images to avoid server fetch issues
+        async function fileToDataURL(file: File): Promise<string> {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.onerror = (e) => reject(e)
+            reader.readAsDataURL(file)
+          })
+        }
+        dataUrls = await Promise.all(
+          pendingFiles.map(({ file }) => file.type.startsWith('image/')
+            ? fileToDataURL(file).catch(() => null)
+            : Promise.resolve(null)
+          )
+        )
+
         const fd = new FormData()
-        pendingFiles.forEach(({ file }) => fd.append("files", file))
+        pendingFiles.forEach(({ file }) => fd.append("files[]", file))
         const resp = await fetch("/api/uploads", { method: "POST", body: fd })
         if (!resp.ok) throw new Error(await resp.text())
         const json = await resp.json() as { files: UploadedFile[] }
@@ -149,7 +193,13 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
         }
       }
 
-      const body: any = { attachments: uploaded, model, temporaryChat }
+      // Enhance attachments with client-side dataUrl where available (by index)
+      const enhanced = uploaded.map((u, idx) => ({
+        ...u,
+        dataUrl: Array.isArray(dataUrls) && dataUrls[idx] ? dataUrls[idx] : undefined,
+      }))
+
+      const body: any = { attachments: enhanced, model, temporaryChat }
       if (threadId) body.threadId = threadId
       await sendMessage({ text: finalText }, { body })
       // revoke previews and clear staged files
@@ -234,6 +284,21 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
                     return (
                       <>
                         <div className="group">
+                          {(() => {
+                            const { images } = extractAttachmentImages(getMessageText(m))
+                            if (!images.length) return null
+                            return (
+                              <div className="flex w-full items-end justify-end mb-1">
+                                <div className="max-w-[var(--user-chat-width,70%)] flex flex-wrap gap-2">
+                                  {images.map((img, i) => (
+                                    <a key={i} href={img.url} target="_blank" rel="noreferrer" className="block">
+                                      <img src={img.url} referrerPolicy="no-referrer" alt={img.name} className="h-28 w-28 object-cover rounded-lg border border-border" />
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })()}
                           <div className="flex w-full items-end justify-end">
                             <div className="user-message-bubble-color relative rounded-full px-4 py-1.5 data-[multiline]:py-3 max-w-[var(--user-chat-width,70%)] bg-[var(--bg-elevated-primary)] text-foreground">
                               <div className="markdown w-full break-words whitespace-pre-wrap text-base">
@@ -242,7 +307,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
                                   rehypePlugins={[rehypeHighlight]}
                                   components={{ a: (props) => (<a {...props} target="_blank" rel="noreferrer" />) }}
                                 >
-                                  {getMessageText(m)}
+                                  {extractAttachmentImages(getMessageText(m)).cleanText}
                                 </ReactMarkdown>
                               </div>
                             </div>

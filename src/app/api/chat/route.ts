@@ -16,8 +16,20 @@ export async function POST(req: NextRequest) {
   try {
     const { messages, model, attachments, temporaryChat, threadId: inputThreadId } = await req.json()
     const { userId } = await auth()
-    const modelId = resolveModel(model)
+    // Choose a vision-capable model automatically if images are present
+    const requestedModelId = resolveModel(model)
+    const hasImageAttachment = Array.isArray(attachments) && attachments.some((f: any) => {
+      const mime = (f?.mime || f?.mimeType || '') as string
+      const dataUrl: string | undefined = f?.dataUrl
+      return (typeof mime === 'string' && mime.startsWith('image/')) || (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/'))
+    })
+    const modelId = (hasImageAttachment && requestedModelId === 'models/gemini-2.5-flash-lite')
+      ? 'models/gemini-2.5-flash'
+      : requestedModelId
     const { reserveForResponse } = getBudgets(modelId)
+    if (process.env.MEM0_DEBUG === '1' || process.env.IMG_DEBUG === '1') {
+      try { console.info('[img] chosen model', { modelId, requestedModelId, hasImageAttachment }) } catch {}
+    }
 
     // Build source messages: optionally augment with prior DB context for the thread
     const uiMessages: any[] = Array.isArray(messages) ? messages : []
@@ -57,21 +69,95 @@ export async function POST(req: NextRequest) {
 
     // NOTE: do not append attachments as plain text; we will add proper image parts below
 
+    // Prepare base64 image parts for the last turn if images were attached
+    const IMG_DEBUG = process.env.MEM0_DEBUG === '1' || process.env.IMG_DEBUG === '1'
+    if (IMG_DEBUG) {
+      try {
+        const attDbg = Array.isArray(attachments) ? attachments.map((a: any) => ({ url: a?.url, mime: a?.mime || a?.mimeType, name: a?.name })) : []
+        console.info('[img] attachments received', { count: attDbg.length, attachments: attDbg })
+      } catch {}
+    }
+    function normalizeUploadcareUrl(u: string): string[] {
+      const variants: string[] = []
+      try {
+        const m = u.match(/^https?:\/\/ucarecdn\.com\/([a-f0-9\-]{36}|[a-f0-9]{32})/i)
+        if (m) {
+          const uuid = m[1]
+          variants.push(`https://ucarecdn.com/${uuid}/`)
+          variants.push(`https://ucarecdn.com/${uuid}/-/preview/`)
+          variants.push(`https://ucarecdn.com/${uuid}/-/format/auto/`)
+        }
+      } catch {}
+      // Always include original last
+      variants.push(u)
+      return Array.from(new Set(variants))
+    }
+
+    async function urlToDataUrl(url: string, mime?: string): Promise<string | null> {
+      const candidates = /ucarecdn\.com/i.test(url) ? normalizeUploadcareUrl(url) : [url]
+      for (const candidate of candidates) {
+        try {
+          const res = await fetch(candidate)
+          if (!res.ok) {
+            if (IMG_DEBUG) console.info('[img] fetch not ok', { url: candidate, status: res.status })
+            continue
+          }
+          const ct = res.headers.get('content-type') || mime || 'image/png'
+          if (IMG_DEBUG) console.info('[img] fetch ok', { url: candidate, contentType: ct })
+          const buf = await res.arrayBuffer()
+          const bin = Buffer.from(buf).toString('base64')
+          return `data:${ct};base64,${bin}`
+        } catch (e: any) {
+          if (IMG_DEBUG) console.info('[img] fetch error', { url: candidate, message: e?.message })
+        }
+      }
+      return null
+    }
+    let imagePartsForLastMessage: any[] = []
+    if (attachments && Array.isArray(attachments) && attachments.length) {
+      try {
+        const imgAtts = attachments.filter((f: any) => typeof ((f?.mime || f?.mimeType)) === 'string' && (f?.mime || f?.mimeType).startsWith('image/'))
+        if (imgAtts.length) {
+          const dataUrls = await Promise.all(
+            imgAtts.map(async (f: any) => {
+              if (typeof f?.dataUrl === 'string' && f.dataUrl.startsWith('data:image/')) return f.dataUrl
+              if (typeof f?.url === 'string') return await urlToDataUrl(f.url, (f?.mime || f?.mimeType))
+              return null
+            })
+          )
+          imagePartsForLastMessage = dataUrls
+            .filter(Boolean)
+            .map((dataUrl) => ({ type: 'image', image: dataUrl as string }))
+          if (IMG_DEBUG) {
+            try {
+              console.info('[img] conversion result', { requested: imgAtts.length, converted: imagePartsForLastMessage.length })
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
     // Build UI messages with proper parts and optional memory system prompt
     const uiMessagesCore = kept.map((m, idx) => {
       const isLast = idx === kept.length - 1
       const text = getText(m)
       const parts: any[] = []
       if (text) parts.push({ type: "text", text })
-      if (isLast && attachments && Array.isArray(attachments) && attachments.length) {
+      if (isLast && imagePartsForLastMessage.length) {
+        parts.push(...imagePartsForLastMessage)
+      } else if (isLast && attachments && Array.isArray(attachments) && attachments.length) {
+        // Non-image files: include as short text references
         for (const f of attachments) {
           const mime = (f as any)?.mime || (f as any)?.mimeType
-          if (typeof f?.url === "string" && typeof mime === "string" && mime.startsWith("image/")) {
-            parts.push({ type: "image", image: { url: f.url } })
-          } else if (typeof f?.url === "string") {
-            parts.push({ type: "text", text: `${f.name || 'file'}: ${f.url}` })
+          if (typeof f?.url === 'string' && !(typeof mime === 'string' && mime.startsWith('image/'))) {
+            parts.push({ type: 'text', text: `${f.name || 'file'}: ${f.url}` })
           }
         }
+      }
+      if (IMG_DEBUG && isLast) {
+        try {
+          console.info('[img] last user parts', parts.map((p: any) => p?.type))
+        } catch {}
       }
       return { role: m.role, parts: parts.length ? parts : [{ type: "text", text: "" }] }
     })
@@ -142,6 +228,30 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
     uiMessagesForConversion.push(...uiMessagesCore)
+    if (IMG_DEBUG) {
+      try {
+        // Log the final last user message part details
+        let lastUser: any = null
+        for (let i = uiMessagesForConversion.length - 1; i >= 0; i--) {
+          const msg: any = uiMessagesForConversion[i]
+          if (msg?.role === 'user') { lastUser = msg; break }
+        }
+        if (lastUser && Array.isArray(lastUser.parts)) {
+          const details = lastUser.parts.map((p: any) => {
+            if (p?.type === 'text') return { type: 'text', chars: String(p?.text || '').length }
+            if (p?.type === 'image') {
+              const img = p?.image
+              const u = typeof img === 'string' ? img : (img?.url || '')
+              const isData = typeof u === 'string' && u.startsWith('data:')
+              const shape = typeof img === 'string' ? 'string' : (img && typeof img === 'object' ? 'object' : typeof img)
+              return { type: 'image', isDataUrl: isData, shape, preview: typeof u === 'string' ? u.slice(0, 32) : typeof u }
+            }
+            return { type: p?.type || typeof p }
+          })
+          console.info('[img] final last user parts detail', details)
+        }
+      } catch {}
+    }
 
     // Persist user message if threadId provided and user is authenticated
     // If no threadId and userId, create a new thread automatically
@@ -176,6 +286,7 @@ export async function POST(req: NextRequest) {
           }
           const parts: any[] = []
           if (lastUserText) parts.push({ type: 'text', text: lastUserText })
+          // Persist images as URLs to keep DB light; model receives base64 above
           if (attachments && Array.isArray(attachments) && attachments.length) {
             for (const f of attachments) {
               const mime = (f as any)?.mime || (f as any)?.mimeType
@@ -219,10 +330,49 @@ export async function POST(req: NextRequest) {
       hasLoggedPromptPreview = true
     }
 
+    const modelMessages = convertToModelMessages(uiMessagesForConversion as any)
+    try {
+      if (imagePartsForLastMessage.length) {
+        for (let i = modelMessages.length - 1; i >= 0; i--) {
+          const msg: any = modelMessages[i]
+          if (msg?.role === 'user') {
+            if (!Array.isArray(msg.content)) msg.content = []
+            for (const p of imagePartsForLastMessage) {
+              const img = typeof p?.image === 'string' ? p.image : (p?.image?.url || '')
+              if (img) msg.content.push({ type: 'image', image: img })
+            }
+            break
+          }
+        }
+      }
+    } catch {}
+    if (IMG_DEBUG) {
+      try {
+        let lastUser: any = null
+        for (let i = modelMessages.length - 1; i >= 0; i--) {
+          const msg: any = modelMessages[i]
+          if (msg?.role === 'user') { lastUser = msg; break }
+        }
+        if (lastUser && Array.isArray(lastUser?.content)) {
+          const details = lastUser.content.map((p: any) => {
+            if (p?.type === 'text') return { type: 'text', chars: String(p?.text || '').length }
+            if (p?.type === 'image') {
+              const img = p?.image
+              const u = typeof img === 'string' ? img : (img?.url || '')
+              const isData = typeof u === 'string' && u.startsWith('data:')
+              return { type: 'image', isDataUrl: isData, preview: typeof u === 'string' ? u.slice(0, 32) : typeof u }
+            }
+            return { type: p?.type || typeof p }
+          })
+          console.info('[img] post-convert message detail', details)
+        }
+      } catch {}
+    }
+
     const result = await streamText({
       model: google(modelId),
       system: systemInstruction || undefined,
-      messages: convertToModelMessages(uiMessagesForConversion as any),
+      messages: modelMessages as any,
       maxOutputTokens: reserveForResponse,
     })
 
