@@ -85,6 +85,7 @@ export function Conversation({ initialQuery, threadId, initialMessages = [] }: P
       .map((p) => (typeof (p as any) === "string" ? (p as unknown as string) : (p as any)?.text ?? ""))
       .join("")
   }
+  
 
   const extractAttachmentImages = (text: string): { images: Array<{ name: string; url: string }>; cleanText: string } => {
     try {
